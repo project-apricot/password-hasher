@@ -1,0 +1,61 @@
+---
+title: Password Hasher
+description: Password hashing for .NET with per-hash parameters and rehash signalling.
+---
+
+# Password Hasher
+
+Password hashing built on PBKDF2, with a per-hash salt and the parameters recorded alongside
+the hash, so the cost can be raised over time without invalidating anything already stored.
+
+## Packages
+
+| Package | What it is |
+| --- | --- |
+| `ApricotFramework.PasswordHasher` | The zero-dependency core: hashing, verification, algorithms |
+| `ApricotFramework.PasswordHasher.AspNetCore` | Service registration, configuration binding and startup validation |
+
+Outside an ASP.NET Core host, use the core package on its own — `new DefaultPasswordHasher(...)`
+needs no container and no configuration system.
+
+## Install
+
+```bash
+dotnet add package ApricotFramework.PasswordHasher
+dotnet add package ApricotFramework.PasswordHasher.AspNetCore
+```
+
+## The model
+
+A hash is stored as a single string carrying everything needed to check it again:
+
+```
+{algorithm}.{iterations}.{salt}.{key}
+PBKDF2-SHA512.210000.xIvQk3gei+2/jK/G0zWBaQ==.mNzmSGBV9RBy6Fmp6LorWj3uaoMW3Lszg9umrXPqjik=
+```
+
+Because the parameters travel with the hash, verification never depends on the current
+configuration. Changing the configured algorithm or iteration count affects only *new* hashes;
+existing ones keep verifying and start reporting `NeedsUpgrade`, which is your cue to rewrite
+them the next time the plain password passes through.
+
+> **Note.** The encoded form is what consumers persist, so it is a compatibility contract. It
+> does not change outside a major version. Salt and key are standard Base64, which never
+> contains a `.`, so the four fields are unambiguous.
+
+## Algorithms
+
+| Name | Derivation | Default iterations |
+| --- | --- | --- |
+| `PBKDF2-SHA512` | PBKDF2 with HMAC-SHA512 | 210,000 |
+| `PBKDF2-SHA256` | PBKDF2 with HMAC-SHA256 | 600,000 |
+| `RFC` | Identical to `PBKDF2-SHA512` | 210,000 |
+
+The defaults follow OWASP guidance, which asks for a higher count from HMAC-SHA256 to reach a
+comparable cost. All three use a 16-byte salt and a 32-byte key.
+
+`RFC` is a legacy name for exactly the same algorithm and parameters as `PBKDF2-SHA512`. It is
+what earlier versions of this library wrote, and it is still accepted so those hashes keep
+working. New hashes are written as `PBKDF2-SHA512` unless you ask otherwise.
+
+Continue with [usage](usage) or [ASP.NET Core](aspnetcore).

@@ -1,0 +1,126 @@
+---
+title: ASP.NET Core
+description: Registration, configuration binding and startup validation.
+---
+
+# ASP.NET Core
+
+`ApricotFramework.PasswordHasher.AspNetCore` wires the hasher into an ASP.NET Core host:
+registration, configuration binding and startup validation.
+
+It takes everything it needs from the ASP.NET Core shared framework, so it has zero NuGet
+dependencies and adds nothing to your dependency tree.
+
+```bash
+dotnet add package ApricotFramework.PasswordHasher.AspNetCore
+```
+
+> **Note.** For a host that is not ASP.NET Core — a worker service or a console tool — use the
+> core package directly. `new DefaultPasswordHasher(new PasswordHasherOptions { … })` needs no
+> container, and hashing and verification behave identically.
+
+## Registration
+
+```csharp
+using ApricotFramework.PasswordHasher.AspNetCore.Extensions;
+
+builder.Services.AddPasswordHasher(builder.Configuration);
+```
+
+That binds the `PasswordHasher` configuration section, adds the options validator and registers
+`IPasswordHasher` as a singleton. The built-in algorithms are not registered because they need
+no registration — every hasher has them.
+
+```json
+{
+  "PasswordHasher": {
+    "Algorithm": "PBKDF2-SHA512",
+    "Iterations": 210000
+  }
+}
+```
+
+Both keys are optional; omitting the section entirely gives `PBKDF2-SHA512` at its default
+iteration count.
+
+Two other overloads are available — a different section name, and configuration in code:
+
+```csharp
+builder.Services.AddPasswordHasher(builder.Configuration, "Security:Passwords");
+
+builder.Services.AddPasswordHasher(options =>
+{
+    options.Algorithm = Pbkdf2Sha256Algorithm.AlgorithmName;
+    options.Iterations = 600_000;
+});
+```
+
+Then inject `IPasswordHasher` wherever you need it.
+
+## Reloading
+
+The registered hasher reads the options on every call through `IOptionsMonitor`, so a
+configuration reload changes the parameters used for new hashes without restarting the host.
+Stored hashes are unaffected either way.
+
+## Startup validation
+
+Settings are validated when the host starts, not on the first login:
+
+- an algorithm name that is not registered
+- an iteration count that is zero or negative
+- an iteration count below the minimum of 10,000, per NIST SP 800-63B
+- an iteration count above the maximum of 10,000,000, which is the ceiling the encoded format
+  accepts — anything the validator allows is guaranteed to be readable back
+
+```
+Microsoft.Extensions.Options.OptionsValidationException: Password hashing iteration count 100
+is below the minimum of 10000 for 'PBKDF2-SHA512'. Existing hashes are unaffected and still
+verify at their own recorded count.
+```
+
+> **Warning.** If you are moving from a configuration that set a very low iteration count, the
+> host will now refuse to start until you raise it. That is the intended behaviour. It bounds
+> only newly written hashes — existing ones are still verified at whatever count is recorded
+> inside them, so nobody is locked out.
+
+In a bare `ServiceCollection` with no host to run the startup hook, the same validation runs the
+first time the options are resolved.
+
+## Replacing what is registered
+
+`IPasswordHasher` is registered with `TryAddSingleton`, so your own registration wins:
+
+```csharp
+services.AddSingleton<IPasswordHasher, MyHasher>();
+services.AddPasswordHasher(builder.Configuration);
+```
+
+Any `IPasswordHashAlgorithm` you register is injected into the hasher **in addition to** the
+built-in ones:
+
+```csharp
+builder.Services.AddPasswordHasherAlgorithm<MyAlgorithm>();
+builder.Services.AddPasswordHasher(builder.Configuration);
+```
+
+The generic overload lets the container construct the algorithm, so it can take constructor
+dependencies of its own. Adding the same type twice is a no-op. Use the instance overload when
+the algorithm needs arguments, or when one implementation should serve several names:
+
+```csharp
+builder.Services.AddPasswordHasherAlgorithm(new Pbkdf2Sha512Algorithm("LEGACY-ALIAS"));
+```
+
+Order relative to `AddPasswordHasher` does not matter — algorithms are injected as an
+`IEnumerable`, resolved once the container is built.
+
+> **Warning.** Register algorithms with these methods rather than `AddSingleton` by hand. The
+> hasher and the options validator are both singletons, so an algorithm registered as scoped or
+> transient fails to resolve with *"Cannot consume scoped service … from singleton"*. These
+> overloads pick the right lifetime for you.
+
+> **Note.** Adding an algorithm cannot take one away, so hashes written under any built-in name
+> keep verifying no matter what you register. The exception is deliberate: registering an
+> algorithm whose `Name` matches a built-in replaces that built-in, which is how you would swap
+> out an implementation.

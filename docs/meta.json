@@ -1,0 +1,5 @@
+{
+  "title": "Password Hasher",
+  "description": "Password hashing for .NET, with ASP.NET Core integration.",
+  "pages": ["index", "usage", "aspnetcore"]
+}

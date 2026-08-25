@@ -46,4 +46,4 @@ earlier versions under the `RFC` algorithm name still verify and are reported as
 upgrade. Verification always uses the parameters stored inside the hash, so raising the
 configured iteration count never locks anyone out.
 
-Full documentation: <https://projectapricot.dev>
+Full documentation: <https://projectapricot.dev/docs/password-hasher>
